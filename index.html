@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Safi Student Records</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Safi Student Records</h1>
+    <p>Student Photo and Examination Records</p>
+  </header>
+
+  <main>
+    <section id="loginSection">
+      <h2>Staff Sign In</h2>
+      <form id="loginForm">
+        <label>Email</label>
+        <input id="email" type="email" required>
+        <label>Password</label>
+        <input id="password" type="password" required>
+        <button type="submit">Sign In</button>
+      </form>
+      <p id="loginMessage"></p>
+    </section>
+
+    <section id="appSection" hidden>
+      <div class="topbar">
+        <span id="userEmail"></span>
+        <button id="logoutButton">Sign Out</button>
+      </div>
+
+      <nav>
+        <button data-page="uploadPage">Upload Record</button>
+        <button data-page="recordsPage">My Records</button>
+        <button data-page="adminPage" id="adminNav" hidden>Administration</button>
+      </nav>
+
+      <section id="uploadPage" class="page">
+        <h2>New Student Record</h2>
+        <form id="recordForm">
+          <label>Student Name</label>
+          <input id="studentName" required>
+
+          <label>Father's Name</label>
+          <input id="fatherName" required>
+
+          <label>Student ID</label>
+          <input id="studentId" required>
+
+          <label>Student Photo</label>
+          <input id="studentPhoto" type="file" accept="image/*" required>
+
+          <button type="button" id="ocrButton">Read Text from Photo</button>
+          <textarea id="extractedText" rows="5"
+            placeholder="Extracted text will appear here"></textarea>
+
+          <button type="submit">Submit for Approval</button>
+        </form>
+        <p id="recordMessage"></p>
+      </section>
+
+      <section id="recordsPage" class="page" hidden>
+        <h2>My Student Records</h2>
+        <div id="myRecords"></div>
+      </section>
+
+      <section id="adminPage" class="page" hidden>
+        <h2>Administration</h2>
+        <h3>Pending Student Records</h3>
+        <div id="pendingRecords"></div>
+
+        <h3>User Accounts</h3>
+        <form id="createUserForm">
+          <label>New User Email</label>
+          <input id="newUserEmail" type="email" required>
+          <label>Temporary Password</label>
+          <input id="newUserPassword" type="password" required>
+          <button type="submit">Create User</button>
+        </form>
+        <p id="adminMessage"></p>
+        <div id="userList"></div>
+      </section>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
