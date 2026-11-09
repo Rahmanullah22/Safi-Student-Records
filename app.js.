@@ -1,0 +1,341 @@
+const SUPABASE_URL = "";
+const SUPABASE_ANON_KEY = "";
+
+let db = null;
+let currentUser = null;
+let isAdmin = false;
+
+const $ = (id) => document.getElementById(id);
+
+async function initialize() {
+  try {
+    const response = await fetch("/.netlify/functions/config");
+    if (!response.ok) throw new Error("Configuration unavailable");
+
+    const config = await response.json();
+
+    db = window.supabase.createClient(
+      config.url,
+      config.anonKey
+    );
+
+    const { data } = await db.auth.getSession();
+
+    if (data.session) {
+      currentUser = data.session.user;
+      await showDashboard();
+    }
+
+    db.auth.onAuthStateChange(async (_event, session) => {
+      currentUser = session?.user || null;
+
+      if (currentUser) {
+        await showDashboard();
+      } else {
+        showLogin();
+      }
+    });
+  } catch (error) {
+    $("loginMessage").textContent =
+      "Setup is not complete yet. Please try again after deployment.";
+  }
+}
+
+function showLogin() {
+  $("loginSection").hidden = false;
+  $("appSection").hidden = true;
+}
+
+async function showDashboard() {
+  $("loginSection").hidden = true;
+  $("appSection").hidden = false;
+  $("userEmail").textContent = currentUser.email;
+
+  isAdmin = currentUser.email.toLowerCase() ===
+    "safi34349@gmail.com";
+
+  $("adminNav").hidden = !isAdmin;
+
+  await loadMyRecords();
+
+  if (isAdmin) {
+    await loadPendingRecords();
+    await loadUsers();
+  }
+
+  showPage("uploadPage");
+}
+
+function showPage(pageId) {
+  document.querySelectorAll(".page").forEach(page => {
+    page.hidden = page.id !== pageId;
+  });
+}
+
+document.querySelectorAll("nav button").forEach(button => {
+  button.addEventListener("click", () => {
+    showPage(button.dataset.page);
+  });
+});
+
+$("loginForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const { error } = await db.auth.signInWithPassword({
+    email: $("email").value.trim(),
+    password: $("password").value
+  });
+
+  $("loginMessage").textContent =
+    error ? error.message : "Signing in...";
+});
+
+$("logoutButton").addEventListener("click", async () => {
+  await db.auth.signOut();
+});
+
+$("ocrButton").addEventListener("click", async () => {
+  const file = $("studentPhoto").files[0];
+
+  if (!file) {
+    $("recordMessage").textContent = "Choose a photo first.";
+    return;
+  }
+
+  $("recordMessage").textContent = "Reading photo...";
+
+  try {
+    const result = await Tesseract.recognize(file, "eng");
+    $("extractedText").value = result.data.text;
+    $("recordMessage").textContent =
+      "Text extracted. Please check it carefully.";
+  } catch (error) {
+    $("recordMessage").textContent =
+      "Could not read the photo. Try a clearer image.";
+  }
+});
+
+$("recordForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const file = $("studentPhoto").files[0];
+  if (!file || !currentUser) return;
+
+  $("recordMessage").textContent = "Saving record...";
+
+  const photoPath =
+    currentUser.id + "/" + Date.now() + "_" + file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+
+  const { error: uploadError } = await db.storage
+    .from("student-photos")
+    .upload(photoPath, file);
+
+  if (uploadError) {
+    $("recordMessage").textContent = uploadError.message;
+    return;
+  }
+
+  const { error } = await db.from("student_records").insert({
+    user_id: currentUser.id,
+    student_name: $("studentName").value.trim(),
+    father_name: $("fatherName").value.trim(),
+    student_id: $("studentId").value.trim(),
+    extracted_text: $("extractedText").value,
+    photo_path: photoPath,
+    status: "pending"
+  });
+
+  if (error) {
+    $("recordMessage").textContent = error.message;
+    return;
+  }
+
+  $("recordMessage").textContent =
+    "Submitted successfully. Waiting for administrator approval.";
+
+  $("recordForm").reset();
+  await loadMyRecords();
+});
+
+async function loadMyRecords() {
+  const { data, error } = await db.from("student_records")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    $("myRecords").textContent = error.message;
+    return;
+  }
+
+  $("myRecords").innerHTML = "";
+
+  (data || []).forEach(record => {
+    const card = document.createElement("div");
+    card.className = "record-card";
+
+    const heading = document.createElement("h3");
+    heading.textContent = record.student_name;
+
+    const details = document.createElement("p");
+    details.textContent =
+      "Father: " + record.father_name +
+      " | ID: " + record.student_id;
+
+    const status = document.createElement("p");
+    status.className = "status";
+    status.textContent = "Status: " + record.status;
+
+    card.append(heading, details, status);
+    $("myRecords").appendChild(card);
+  });
+}
+
+async function loadPendingRecords() {
+  const { data, error } = await db.from("student_records")
+    .select("*")
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    $("pendingRecords").textContent = error.message;
+    return;
+  }
+
+  $("pendingRecords").innerHTML = "";
+
+  (data || []).forEach(record => {
+    const card = document.createElement("div");
+    card.className = "record-card";
+
+    const heading = document.createElement("h3");
+    heading.textContent = record.student_name;
+
+    const details = document.createElement("p");
+    details.textContent =
+      "Father: " + record.father_name +
+      " | ID: " + record.student_id;
+
+    const approve = document.createElement("button");
+    approve.textContent = "Approve";
+    approve.onclick = () => updateStatus(record.id, "approved");
+
+    const reject = document.createElement("button");
+    reject.textContent = "Reject";
+    reject.onclick = () => updateStatus(record.id, "rejected");
+
+    card.append(heading, details, approve, reject);
+    $("pendingRecords").appendChild(card);
+  });
+}
+
+async function updateStatus(id, status) {
+  const { error } = await db.from("student_records")
+    .update({ status })
+    .eq("id", id);
+
+  if (error) {
+    alert(error.message);
+    return;
+  }
+
+  await loadPendingRecords();
+  await loadMyRecords();
+}
+
+async function adminRequest(action, payload = {}) {
+  const { data } = await db.auth.getSession();
+  const token = data.session?.access_token;
+
+  const response = await fetch("/.netlify/functions/admin", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + token
+    },
+    body: JSON.stringify({ action, ...payload })
+  });
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(result.error || "Administrator request failed");
+  }
+
+  return result;
+}
+
+$("createUserForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  try {
+    await adminRequest("create", {
+      email: $("newUserEmail").value.trim(),
+      password: $("newUserPassword").value
+    });
+
+    $("adminMessage").textContent = "User created.";
+    $("createUserForm").reset();
+    await loadUsers();
+  } catch (error) {
+    $("adminMessage").textContent = error.message;
+  }
+});
+
+async function loadUsers() {
+  if (!isAdmin) return;
+
+  try {
+    const result = await adminRequest("list");
+    $("userList").innerHTML = "";
+
+    (result.users || []).forEach(user => {
+      const card = document.createElement("div");
+      card.className = "record-card";
+
+      const email = document.createElement("p");
+      email.textContent = user.email;
+
+      const state = document.createElement("p");
+      state.textContent = user.banned_until
+        ? "Suspended"
+        : "Active";
+
+      const suspend = document.createElement("button");
+      suspend.textContent = user.banned_until
+        ? "Reactivate"
+        : "Suspend";
+
+      suspend.onclick = async () => {
+        try {
+          await adminRequest(
+            user.banned_until ? "reactivate" : "suspend",
+            { userId: user.id }
+          );
+          await loadUsers();
+        } catch (error) {
+          alert(error.message);
+        }
+      };
+
+      const remove = document.createElement("button");
+      remove.textContent = "Delete";
+      remove.onclick = async () => {
+        if (!confirm("Delete this account?")) return;
+
+        try {
+          await adminRequest("delete", { userId: user.id });
+          await loadUsers();
+        } catch (error) {
+          alert(error.message);
+        }
+      };
+
+      card.append(email, state, suspend, remove);
+      $("userList").appendChild(card);
+    });
+  } catch (error) {
+    $("userList").textContent = error.message;
+  }
+}
+
+initialize();
